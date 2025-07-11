@@ -1,7 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { verifyToken } = require('../middleware/auth');
+const { verifyToken, verifyAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -21,12 +21,12 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'User already exists with this email' });
     }
 
-    // Create new user
+    // Create new user (always as customer unless specified)
     const user = new User({
       name,
       email,
       password,
-      role: role || 'customer'
+      role: 'customer' // Force customer role for new registrations
     });
 
     await user.save();
@@ -45,6 +45,7 @@ router.post('/register', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Registration error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -80,6 +81,7 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -182,6 +184,92 @@ router.put('/profile', verifyToken, async (req, res) => {
       }
     });
   } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Debug route to test admin access
+router.get('/test-admin', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    res.json({
+      message: 'Admin access working correctly',
+      user: {
+        id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+        role: req.user.role
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Admin test error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Get all users (admin only)
+router.get('/users', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    console.log('Fetching users - Admin:', req.user.email);
+    
+    const users = await User.find()
+      .select('-password') // Exclude password field
+      .sort({ createdAt: -1 });
+
+    console.log(`Found ${users.length} users`);
+
+    res.json({
+      message: 'Users fetched successfully',
+      users,
+      total: users.length
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Update user role (admin only)
+router.patch('/users/:userId/role', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    console.log(`Admin ${req.user.email} attempting to change user ${userId} role to ${role}`);
+
+    // Validate role
+    if (!['customer', 'admin'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role. Must be customer or admin.' });
+    }
+
+    // Prevent admin from changing their own role
+    if (userId === req.user._id.toString()) {
+      return res.status(403).json({ message: 'You cannot change your own role' });
+    }
+
+    // Find and update user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const oldRole = user.role;
+    user.role = role;
+    await user.save();
+
+    console.log(`User ${user.email} role changed from ${oldRole} to ${role}`);
+
+    res.json({
+      message: `User role updated to ${role} successfully`,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Error updating user role:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
