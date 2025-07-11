@@ -87,7 +87,12 @@ router.post('/login', async (req, res) => {
 // Google Login
 router.post('/google-login', async (req, res) => {
   try {
-    const { email, name, googleId } = req.body;
+    const { email, name, googleId, picture } = req.body;
+
+    // Validate required fields
+    if (!email || !name || !googleId) {
+      return res.status(400).json({ message: 'Missing required Google profile information' });
+    }
 
     // Check if user exists
     let user = await User.findOne({ email });
@@ -98,13 +103,21 @@ router.post('/google-login', async (req, res) => {
         name,
         email,
         googleId,
-        role: 'customer'
+        role: 'customer',
+        // Don't store the picture URL in database for this simple app
+        // but you could add a picture field to the User model if needed
       });
       await user.save();
+      
+      console.log(`New Google user created: ${email}`);
     } else if (!user.googleId) {
       // Link Google account to existing user
       user.googleId = googleId;
       await user.save();
+      
+      console.log(`Google account linked to existing user: ${email}`);
+    } else {
+      console.log(`Existing Google user logged in: ${email}`);
     }
 
     // Generate token
@@ -117,11 +130,14 @@ router.post('/google-login', async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        address: user.address,
+        phone: user.phone
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Google login error:', error);
+    res.status(500).json({ message: 'Server error during Google login', error: error.message });
   }
 });
 
